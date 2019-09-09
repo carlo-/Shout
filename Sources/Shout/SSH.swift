@@ -164,6 +164,43 @@ public class SSH {
         
         return channel.exitStatus()
     }
+    
+    /// TODO: Add documentation
+    public func executeAndReply(_ command: String, output: ((_ output: String) -> (String?))) throws -> Int32 {
+        let channel = try session.openCommandChannel()
+        
+        if let ptyType = ptyType {
+            try channel.requestPty(type: ptyType.rawValue)
+        }
+        
+        try channel.exec(command: command)
+        
+        var dataLeft = true
+        while dataLeft {
+            switch channel.readData() {
+            case .data(let data):
+                let str = data.withUnsafeBytes { (pointer: UnsafePointer<CChar>) in
+                    return String(cString: pointer)
+                }
+                if let answer = output(str), let answerData = answer.data(using: .utf8) {
+                    let writeRes = channel.write(data: answerData, length: answerData.count)
+                    if case .error(let writeError) = writeRes {
+                        throw writeError
+                    }
+                }
+            case .done:
+                dataLeft = false
+            case .eagain:
+                break
+            case .error(let error):
+                throw error
+            }
+        }
+        
+        try channel.close()
+        
+        return channel.exitStatus()
+    }
 
     /// Upload a file from the local device to the remote server
     ///
